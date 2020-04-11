@@ -29,41 +29,52 @@ const HTML = `<!doctype html>
   			font-family: Helvetica, Arial, sans-serif;
   			color: rgba(0, 127, 255, 0.5);
 		}
-		body > p {
+		.meta {
 			position: absolute;
 			top: 0.5em;
 			left: 0.5em;
   			font-size: 2em;
 		}
-		div {
+		.overlay {
 			display: grid;
 			position: absolute;
 			top: 0;
 			left: 0;
 			width: 100%;
 			height: 100%;
+			cursor: pointer;
 		}
-		div > p {
+		.overlay p {
 			margin: auto;
   			font-size: 15vh;
   			text-align: center;
+			user-select: none;
 		}
 	</style>
 	<script>
-		document.addEventListener('click', () => {
+		const load = () => {
+			document.querySelector('.overlay p').innerHTML = 'wart hurti...'
 			navigator.geolocation.getCurrentPosition(e => {
 				window.location.href = '/location?latitude=' + e.coords.latitude + '&longitude=' + e.coords.longitude
 			})
+		}
+		document.addEventListener('DOMContentLoaded', () => {
+			if (window.location.pathname != '/location') {
+				document.querySelectorAll('.meta, svg').forEach(e => e.style.display = 'none')
+			}
+			document.querySelector('.overlay').addEventListener('click', load)
+			document.querySelector('.overlay').addEventListener('touchend', load)
 		})
 	</script>
 </head>
 <body>
-	<p>{3} {4}°C {5}%</p>
+	<p class="meta">{3} {4}°C {5}%</p>
 	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
-		<path d="{2}" fill="rgba(255, 127, 0, 0.5)"></path>
 		<path d="{1}" fill="rgba(0, 127, 255, 0.5)"></path>
+		<path d="{2}" fill="rgba(255, 127, 0, 0.5)"></path>
+		<circle cx="{6}" cy="{7}" r="2" fill="rgba(255, 127, 0, 0.5)"/>
 	</svg>
-	<div>
+	<div class="overlay">
 		<p>{0}</p>
 	</div>
 </body>
@@ -196,56 +207,57 @@ const normalize = (a, h) => a.map((y, i) => {
 })
 
 http.createServer((request, response) => {
-	if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
-		response.writeHead(301, {
-			'Location': 'https://' + request.headers['host'] + request.url
-		})
-		response.end()
-		return
-	}
-	if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
-		let p = request.url.substring(1)
-		response.writeHead(200, {
-			'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
-			'Content-Length': fs.statSync(p).size
-		})
-		fs.createReadStream(p).pipe(response)
-		return
-	}
-	if (request.url == '/') {
-		response.statusCode = 200
-		response.end(HTML.format('drück mau hie', '', '', ''))
-		return
-	}
-	if (!request.url.startsWith('/location?latitude')) {
-		response.statusCode = 404
-		response.end(HTML.format('das gits nid', '', '', ''))
-		return
-	}
-	let u = new url.URL('http://' + request.headers['host'] + request.url)
-	let latitude = parseFloat(u.searchParams.get('latitude'))
-	let longitude = parseFloat(u.searchParams.get('longitude'))
-	if (isNaN(latitude) || isNaN(longitude)) {
-		response.statusCode = 200
-		response.end(HTML.format('drück mau hie', '', '', ''))
-		return
-	}
-	getWeatherAuthentication(CH_ID, CH_SECRET)
-		.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
-		.then(forecast => {
-			let location = forecast.info.name.de
-			let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
-			let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
-			let temperature = Math.max.apply(null, temperatures)
-			let rain = Math.max.apply(null, rains)
-			let message = getMessage(temperature, rain)
-			let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
-			let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
+		if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
+			response.writeHead(301, {
+				'Location': 'https://' + request.headers['host'] + request.url
+			})
+			response.end()
+			return
+		}
+		if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
+			let p = request.url.substring(1)
+			response.writeHead(200, {
+				'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
+				'Content-Length': fs.statSync(p).size
+			})
+			fs.createReadStream(p).pipe(response)
+			return
+		}
+		if (request.url == '/') {
 			response.statusCode = 200
-			response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
-		}, data => {
+			response.end(HTML.format('drück mau hie'))
+			return
+		}
+		if (!request.url.startsWith('/location?latitude')) {
+			response.statusCode = 404
+			response.end(HTML.format('das gits nid'))
+			return
+		}
+		let u = new url.URL('http://' + request.headers['host'] + request.url)
+		let latitude = parseFloat(u.searchParams.get('latitude'))
+		let longitude = parseFloat(u.searchParams.get('longitude'))
+		if (isNaN(latitude) || isNaN(longitude)) {
+			response.statusCode = 200
+			response.end(HTML.format('drück mau hie'))
+			return
+		}
+		getWeatherAuthentication(CH_ID, CH_SECRET)
+			.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
+			.then(forecast => {
+				let location = forecast.info.name.de
+				let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
+				let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
+				let temperature = Math.max.apply(null, temperatures)
+				let rain = Math.max.apply(null, rains)
+				let message = getMessage(temperature, rain)
+				let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
+				let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
+				let now = new Date()
+				response.statusCode = 200
+				response.end(HTML.format(message, dRain, dTemperature, location, temperature, rain, 100 / 24 * now.getHours(), 100 - 100 / 50 * temperatures[Math.floor(now.getHours() / 3)]))
+			}, data => {
 				response.statusCode = 500
-				response.end(HTML.format('ke ahnig', '', '', ''))
+				response.end(HTML.format('ke ahnig'))
 			})
 	}
 ).listen(PORT)
