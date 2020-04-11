@@ -1,5 +1,6 @@
 const http = require('http')
 const https = require('https')
+const fs = require('fs')
 
 const PORT = process.env.PORT
 const CH_ID = process.env.CH_ID
@@ -8,7 +9,13 @@ const HTML = `<!doctype html>
 <html lang="en">
 <head>
 	<meta charset="utf-8">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>churzi hose?</title>
+	<link rel="manifest" href="/manifest.json">
+	<link rel="shortcut icon" type="image/x-icon" href="favicon.ico" />
+	<link rel="icon" type="image/x-icon" href="favicon.ico" />
 	<style>
 		*, *::before, *::after {
   			box-sizing: border-box;
@@ -19,13 +26,13 @@ const HTML = `<!doctype html>
 			width: 100%;
 			height: 100%;
   			font-family: Helvetica, Arial, sans-serif;
+  			color: #0096FF;
 		}
 		body > p {
 			position: absolute;
 			top: 0;
 			left: 0;
-  			font-size: 3vh;
-  			color: rgba(0, 0, 0, 0.5);
+  			font-size: 2em;
 		}
 		div {
 			display: grid;
@@ -38,13 +45,13 @@ const HTML = `<!doctype html>
 		div > p {
 			margin: auto;
   			font-size: 15vh;
-  			color: rgba(0, 0, 0, 0.5);
+  			text-align: center;
 		}
 	</style>
 	<script>
-		if (window.location.pathname.split('/').length !== 3) {
+		if (!window.location.pathname.startsWith('/location/')) {
 			navigator.geolocation.getCurrentPosition(e => {
-				window.location.pathname = '/' + e.coords.latitude + '/' + e.coords.longitude
+				window.location.pathname = '/location/' + e.coords.latitude + '/' + e.coords.longitude
 			})
 		}
 	</script>
@@ -52,8 +59,8 @@ const HTML = `<!doctype html>
 <body>
 	<p>{3} {4}°C {5}%</p>
 	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
-		<path d="{2}" fill="rgba(0, 127, 253, 0.5)"></path>
-		<path d="{1}" fill="rgba(253, 127, 0, 0.5)"></path>
+		<path d="{2}" fill="rgba(0, 150, 255, 0.5)"></path>
+		<path d="{1}" fill="rgba(255, 150, 0, 0.5)"></path>
 	</svg>
 	<div>
 		<p>{0}</p>
@@ -69,6 +76,7 @@ String.prototype.format = function () {
 	}
 	return formatted
 }
+
 const responsify = response => new Promise((resolve, reject) => {
 	let chunks = []
 	response.on('data', chunk => chunks.push(chunk))
@@ -185,31 +193,39 @@ const normalize = (a, h) => a.map((y, i) => {
 		y: 100 - y * 100 / h
 	}
 })
-const getCoordinates = (path) => {
-	if (path == '/') {
-		return [46.9480, 7.4474]
-	}
-	return path.split('/').filter(s => s.length > 0).map(parseFloat)
-}
 
 http.createServer((request, response) => {
-	let [latitude, longitude] = getCoordinates(request.url)
-	getWeatherAuthentication(CH_ID, CH_SECRET)
-		.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
-		.then(forecast => {
-			let location = forecast.info.name.de
-			let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
-			let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
-			let temperature = Math.max.apply(null, temperatures)
-			let rain = Math.max.apply(null, rains)
-			let message = getMessage(temperature, rain)
-			let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
-			let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
-			response.statusCode = 200
-			response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
-		}, data => {
-			console.warn(data)
-			response.statusCode = 500
-			response.end(HTML.format('ke ahnig', '', '', ''))
+	if (['/manifest.json', '/favicon.ico', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
+		let p = request.url.substring(1)
+		response.writeHead(200, {
+			'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
+			'Content-Length': fs.statSync(p).size
 		})
+		fs.createReadStream(p).pipe(response)
+	} else {
+		let match = request.url.match(/^\/location\/(\d+(?:\.\d+))\/(\d+(?:\.\d+))$/)
+		if (match) {
+			getWeatherAuthentication(CH_ID, CH_SECRET)
+				.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
+				.then(forecast => {
+					let location = forecast.info.name.de
+					let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
+					let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
+					let temperature = Math.max.apply(null, temperatures)
+					let rain = Math.max.apply(null, rains)
+					let message = getMessage(temperature, rain)
+					let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
+					let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
+					response.statusCode = 200
+					response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
+				}, data => {
+					console.warn(data)
+					response.statusCode = 500
+					response.end(HTML.format('ke ahnig', '', '', ''))
+				})
+		} else {
+			response.statusCode = 404
+			response.end(HTML.format('das gits gar nid', '', '', ''))
+		}
+	}
 }).listen(PORT)
