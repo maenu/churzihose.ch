@@ -1,7 +1,7 @@
 {
   "name": "churzihose.ch",
   "version": "0.0.1",
-  "description": "morn churzi hose?",
+  "description": "churzi hose?",
   "engines": {
     "node": "12.x"
   },
@@ -9,9 +9,7 @@
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "serve": "^11.3.0"
-  },
+  "dependencies": {},
   "devDependencies": {},
   "license": "MIT"
 }
