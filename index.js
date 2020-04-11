@@ -51,7 +51,7 @@ const HTML = `<!doctype html>
 	<script>
 		if (!window.location.pathname.startsWith('/location/')) {
 			navigator.geolocation.getCurrentPosition(e => {
-				window.location.pathname = '/location/' + e.coords.latitude + '/' + e.coords.longitude
+				window.location.href = '/location/' + e.coords.latitude + '/' + e.coords.longitude
 			})
 		}
 	</script>
