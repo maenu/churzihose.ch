@@ -14,8 +14,8 @@ const HTML = `<!doctype html>
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>churzi hose?</title>
 	<link rel="manifest" href="/manifest.json">
-	<link rel="shortcut icon" type="image/x-icon" href="favicon.ico" />
-	<link rel="icon" type="image/x-icon" href="favicon.ico" />
+	<link rel="shortcut icon" type="image/x-icon" href="/icon-512.png" />
+	<link rel="icon" type="image/x-icon" href="/icon-512.png" />
 	<style>
 		*, *::before, *::after {
   			box-sizing: border-box;
@@ -26,12 +26,12 @@ const HTML = `<!doctype html>
 			width: 100%;
 			height: 100%;
   			font-family: Helvetica, Arial, sans-serif;
-  			color: #0096FF;
+  			color: rgba(0, 127, 255, 0.5);
 		}
 		body > p {
 			position: absolute;
-			top: 0;
-			left: 0;
+			top: 0.5em;
+			left: 0.5em;
   			font-size: 2em;
 		}
 		div {
@@ -59,8 +59,8 @@ const HTML = `<!doctype html>
 <body>
 	<p>{3} {4}°C {5}%</p>
 	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
-		<path d="{2}" fill="rgba(0, 150, 255, 0.5)"></path>
-		<path d="{1}" fill="rgba(255, 150, 0, 0.5)"></path>
+		<path d="{2}" fill="rgba(255, 127, 0, 0.5)"></path>
+		<path d="{1}" fill="rgba(0, 127, 255, 0.5)"></path>
 	</svg>
 	<div>
 		<p>{0}</p>
@@ -195,37 +195,44 @@ const normalize = (a, h) => a.map((y, i) => {
 })
 
 http.createServer((request, response) => {
-	if (['/manifest.json', '/favicon.ico', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
-		let p = request.url.substring(1)
-		response.writeHead(200, {
-			'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
-			'Content-Length': fs.statSync(p).size
-		})
-		fs.createReadStream(p).pipe(response)
-	} else {
+		if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
+			response.writeHead(301, {
+				'Location': 'https://' + request.headers['host'] + request.url
+			})
+			response.end()
+			return
+		}
+		if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
+			let p = request.url.substring(1)
+			response.writeHead(200, {
+				'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
+				'Content-Length': fs.statSync(p).size
+			})
+			fs.createReadStream(p).pipe(response)
+			return
+		}
 		let match = request.url.match(/^\/location\/(\d+(?:\.\d+))\/(\d+(?:\.\d+))$/)
-		if (match) {
-			getWeatherAuthentication(CH_ID, CH_SECRET)
-				.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
-				.then(forecast => {
-					let location = forecast.info.name.de
-					let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
-					let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
-					let temperature = Math.max.apply(null, temperatures)
-					let rain = Math.max.apply(null, rains)
-					let message = getMessage(temperature, rain)
-					let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
-					let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
-					response.statusCode = 200
-					response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
-				}, data => {
-					console.warn(data)
-					response.statusCode = 500
-					response.end(HTML.format('ke ahnig', '', '', ''))
-				})
-		} else {
+		if (!match) {
 			response.statusCode = 404
 			response.end(HTML.format('das gits gar nid', '', '', ''))
+			return
 		}
+		getWeatherAuthentication(CH_ID, CH_SECRET)
+			.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
+			.then(forecast => {
+				let location = forecast.info.name.de
+				let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
+				let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
+				let temperature = Math.max.apply(null, temperatures)
+				let rain = Math.max.apply(null, rains)
+				let message = getMessage(temperature, rain)
+				let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
+				let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
+				response.statusCode = 200
+				response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
+			}, data => {
+				response.statusCode = 500
+				response.end(HTML.format('ke ahnig', '', '', ''))
+			})
 	}
-}).listen(PORT)
+).listen(PORT)
