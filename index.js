@@ -56,6 +56,9 @@ const HTML = `<!doctype html>
 			document.querySelector('.overlay p').innerHTML = 'wart hurti...'
 			navigator.geolocation.getCurrentPosition(e => {
 				window.location.href = '/location?latitude=' + e.coords.latitude + '&longitude=' + e.coords.longitude
+			}, e => {
+				document.querySelector('.overlay p').style.fontSize = '10vh'
+				document.querySelector('.overlay p').innerHTML = 'aktivier doch ortigdienscht ide ischtellige du möff, süch chani o nüt mache'
 			})
 		}
 		document.addEventListener('DOMContentLoaded', () => {
@@ -70,9 +73,9 @@ const HTML = `<!doctype html>
 <body>
 	<p class="meta">{3} {4}°C {5}%</p>
 	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
-		<path d="{1}" fill="rgba(0, 127, 255, 0.5)"></path>
-		<path d="{2}" fill="rgba(255, 127, 0, 0.5)"></path>
-		<circle cx="{6}" cy="{7}" r="2" fill="rgba(255, 127, 0, 0.5)"/>
+		<path d="{1}" fill="rgba(255, 127, 0, 0.5)"></path>
+		<path d="{2}" fill="rgba(0, 127, 255, 0.5)"></path>
+		<circle cx="{6}" cy="{7}" r="2" fill="rgba(0, 127, 255, 0.5)"/>
 	</svg>
 	<div class="overlay">
 		<p>{0}</p>
