@@ -202,25 +202,30 @@ http.createServer((request, response) => {
 			response.end()
 			return
 		}
-		if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
-			let p = request.url.substring(1)
-			response.writeHead(200, {
-				'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
-				'Content-Length': fs.statSync(p).size
-			})
-			fs.createReadStream(p).pipe(response)
-			return
-		}
-		let match = request.url.match(/^\/location\/(\d+(?:\.\d+))\/(\d+(?:\.\d+))$/)
-		if (!match) {
-			response.statusCode = 404
-			response.end(HTML.format('das gits gar nid', '', '', ''))
-			return
-		}
-		getWeatherAuthentication(CH_ID, CH_SECRET)
-			.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
-			.then(forecast => {
-				let location = forecast.info.name.de
+	if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
+		let p = request.url.substring(1)
+		response.writeHead(200, {
+			'Content-Type': p.endsWith('.json') ? 'application/json' : 'image/png',
+			'Content-Length': fs.statSync(p).size
+		})
+		fs.createReadStream(p).pipe(response)
+		return
+	}
+	if (request.url == '/') {
+		response.statusCode = 200
+		response.end(HTML.format('chume grad...', '', '', ''))
+		return
+	}
+	let match = request.url.match(/^\/location\/(\d+(?:\.\d+))\/(\d+(?:\.\d+))$/)
+	if (!match) {
+		response.statusCode = 404
+		response.end(HTML.format('das gits gar nid', '', '', ''))
+		return
+	}
+	getWeatherAuthentication(CH_ID, CH_SECRET)
+		.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
+		.then(forecast => {
+			let location = forecast.info.name.de
 				let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
 				let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
 				let temperature = Math.max.apply(null, temperatures)
