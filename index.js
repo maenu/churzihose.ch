@@ -2,7 +2,6 @@ const http = require('http')
 const https = require('https')
 
 const PORT = process.env.PORT
-const CH_IP = process.env.CH_IP
 const CH_ID = process.env.CH_ID
 const CH_SECRET = process.env.CH_SECRET
 const HTML = `<!doctype html>
@@ -19,21 +18,46 @@ const HTML = `<!doctype html>
 		html, body {
 			width: 100%;
 			height: 100%;
-			display: grid;
-			background: #007FFD;
-		}
-		p {
-			margin: auto;
-  			text-align: center;
   			font-family: Helvetica, Arial, sans-serif;
-  			font-size: 20vw;
-			padding: 0.5em;
-  			color: white;
+		}
+		body > p {
+			position: absolute;
+			top: 0;
+			left: 0;
+  			font-size: 3vh;
+  			color: rgba(0, 0, 0, 0.5);
+		}
+		div {
+			display: grid;
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+		}
+		div > p {
+			margin: auto;
+  			font-size: 15vh;
+  			color: rgba(0, 0, 0, 0.5);
 		}
 	</style>
+	<script>
+		if (window.location.pathname.split('/').length !== 3) {
+			navigator.geolocation.getCurrentPosition(e => {
+				window.location.pathname = '/' + e.coords.latitude + '/' + e.coords.longitude
+			})
+		}
+	</script>
 </head>
 <body>
-	<p>{0}</p>
+	<p>{3} {4}°C {5}%</p>
+	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
+		<path d="{2}" fill="rgba(0, 127, 253, 0.5)"></path>
+		<path d="{1}" fill="rgba(253, 127, 0, 0.5)"></path>
+	</svg>
+	<div>
+		<p>{0}</p>
+	</div>
 </body>
 </html>`
 
@@ -45,17 +69,21 @@ String.prototype.format = function () {
 	}
 	return formatted
 }
-const json = (options) => new Promise((resolve, reject) => {
+const responsify = response => new Promise((resolve, reject) => {
+	let chunks = []
+	response.on('data', chunk => chunks.push(chunk))
+	response.on('end', () => {
+		let data = Buffer.concat(chunks).toString()
+		if (response.statusCode < 400) {
+			resolve(data, response)
+		} else {
+			reject(data, response)
+		}
+	})
+})
+const json = options => new Promise((resolve, reject) => {
 	https.request(options, response => {
-		let chunks = []
-		response.on('data', chunk => chunks.push(chunk))
-		response.on('end', () => {
-			if (response.statusCode < 400) {
-				resolve(JSON.parse(Buffer.concat(chunks).toString()), response)
-			} else {
-				reject(response)
-			}
-		})
+		responsify(response).then(data => resolve(JSON.parse(data), response), reject)
 	}).end()
 })
 const getWeatherAuthentication = (id, secret) => json({
@@ -73,11 +101,6 @@ const getWeatherForecast = (latitude, longitude, token) => json({
 	headers: {
 		Authorization: `Bearer ${token}`
 	}
-})
-const getLocation = (ip) => json({
-	method: 'GET',
-	hostname: 'api.ipgeolocationapi.com',
-	path: `/geolocate/${ip}`
 })
 const getMessage = (temperature, rain) => {
 	if (temperature >= 25) {
@@ -97,21 +120,96 @@ const getMessage = (temperature, rain) => {
 	}
 	return 'schpinsch?'
 }
+const add = (p, q) => {
+	return {
+		x: p.x + q.x,
+		y: p.y + q.y
+	}
+}
+const subtract = (p, q) => {
+	return {
+		x: p.x - q.x,
+		y: p.y - q.y
+	}
+}
+const multiply = (p, a) => {
+	return {
+		x: a * p.x,
+		y: a * p.y
+	}
+}
+const abs = (p) => Math.sqrt(Math.pow(p.x, 2) + Math.pow(p.y, 2))
+const dot = (p, q) => p.x * q.x + p.y * q.y
+const cos = (p, q) => dot(p, q) / (abs(p) * abs(q))
+const unit = (p) => {
+	let d = abs(p)
+	if (d === 0) {
+		return {
+			x: 0,
+			y: 0
+		}
+	} else {
+		return multiply(p, 1 / d)
+	}
+}
+const start = (points, i, d = 1) => {
+	let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+	let p = points[Math.min(Math.max(i, 0), points.length - 1)]
+	let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
+	let q = unit(subtract(pn, pp))
+	let c = abs(subtract(pn, p))
+	return add(p, multiply(q, d * c))
+}
+const end = (points, i, d = 1) => {
+	let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+	let p = points[Math.min(Math.max(i, 0), points.length - 1)]
+	let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
+	let q = unit(subtract(pp, pn))
+	let c = abs(subtract(pp, p))
+	return add(p, multiply(q, d * c))
+}
+const d = (points, smoothing = 0.5) => {
+	let d = `L ${points[0].x} ${points[0].y}`
+	for (let i = 1; i < points.length; i = i + 1) {
+		let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+		let p = points[i]
+		let ps = start(points, i - 1, smoothing)
+		let pe = end(points, i, smoothing)
+		d = `${d} C ${ps.x} ${ps.y},  ${pe.x} ${pe.y}, ${p.x} ${p.y}`
+	}
+	return d
+}
+const normalize = (a, h) => a.map((y, i) => {
+	return {
+		x: i * 100 / 8,
+		y: 100 - y * 100 / h
+	}
+})
+const getCoordinates = (path) => {
+	if (path == '/') {
+		return [46.9480, 7.4474]
+	}
+	return path.split('/').filter(s => s.length > 0).map(parseFloat)
+}
 
 http.createServer((request, response) => {
-	let ip = CH_IP || request.headers['x-forwarded-for'] || request.connection.remoteAddress
-	Promise.all([
-		getLocation(ip),
-		getWeatherAuthentication(CH_ID, CH_SECRET)
-	])
-		.then(([location, authentication]) => getWeatherForecast(location.geo.latitude, location.geo.longitude, authentication.access_token))
+	let [latitude, longitude] = getCoordinates(request.url)
+	getWeatherAuthentication(CH_ID, CH_SECRET)
+		.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
 		.then(forecast => {
-			let temperature = Math.max.apply(null, forecast['24hours'].map(d => parseFloat(d.values[1].ttt)))
-			let rain = Math.max.apply(null, forecast['24hours'].map(d => parseFloat(d.values[6].pr3)))
+			let location = forecast.info.name.de
+			let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
+			let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
+			let temperature = Math.max.apply(null, temperatures)
+			let rain = Math.max.apply(null, rains)
+			let message = getMessage(temperature, rain)
+			let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
+			let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
 			response.statusCode = 200
-			response.end(HTML.format(getMessage(temperature, rain)))
-		}, error => {
+			response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
+		}, data => {
+			console.warn(data)
 			response.statusCode = 500
-			response.end(HTML.format('ke ahnig'))
+			response.end(HTML.format('ke ahnig', '', '', ''))
 		})
 }).listen(PORT)
