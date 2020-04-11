@@ -1,6 +1,7 @@
 const http = require('http')
 const https = require('https')
 const fs = require('fs')
+const url = require('url')
 
 const PORT = process.env.PORT
 const CH_ID = process.env.CH_ID
@@ -49,11 +50,11 @@ const HTML = `<!doctype html>
 		}
 	</style>
 	<script>
-		if (!window.location.pathname.startsWith('/location/')) {
+		document.addEventListener('click', () => {
 			navigator.geolocation.getCurrentPosition(e => {
-				window.location.href = '/location/' + e.coords.latitude + '/' + e.coords.longitude
+				window.location.href = '/location?latitude=' + e.coords.latitude + '&longitude=' + e.coords.longitude
 			})
-		}
+		})
 	</script>
 </head>
 <body>
@@ -195,13 +196,13 @@ const normalize = (a, h) => a.map((y, i) => {
 })
 
 http.createServer((request, response) => {
-		if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
-			response.writeHead(301, {
-				'Location': 'https://' + request.headers['host'] + request.url
-			})
-			response.end()
-			return
-		}
+	if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
+		response.writeHead(301, {
+			'Location': 'https://' + request.headers['host'] + request.url
+		})
+		response.end()
+		return
+	}
 	if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
 		let p = request.url.substring(1)
 		response.writeHead(200, {
@@ -213,29 +214,36 @@ http.createServer((request, response) => {
 	}
 	if (request.url == '/') {
 		response.statusCode = 200
-		response.end(HTML.format('chume grad...', '', '', ''))
+		response.end(HTML.format('drück mau hie', '', '', ''))
 		return
 	}
-	let match = request.url.match(/^\/location\/(\d+(?:\.\d+))\/(\d+(?:\.\d+))$/)
-	if (!match) {
+	if (!request.url.startsWith('/location?latitude')) {
 		response.statusCode = 404
-		response.end(HTML.format('das gits gar nid', '', '', ''))
+		response.end(HTML.format('das gits nid', '', '', ''))
+		return
+	}
+	let u = new url.URL('http://' + request.headers['host'] + request.url)
+	let latitude = parseFloat(u.searchParams.get('latitude'))
+	let longitude = parseFloat(u.searchParams.get('longitude'))
+	if (isNaN(latitude) || isNaN(longitude)) {
+		response.statusCode = 200
+		response.end(HTML.format('drück mau hie', '', '', ''))
 		return
 	}
 	getWeatherAuthentication(CH_ID, CH_SECRET)
-		.then(authentication => getWeatherForecast(match[1], match[2], authentication.access_token))
+		.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
 		.then(forecast => {
 			let location = forecast.info.name.de
-				let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
-				let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
-				let temperature = Math.max.apply(null, temperatures)
-				let rain = Math.max.apply(null, rains)
-				let message = getMessage(temperature, rain)
-				let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
-				let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
-				response.statusCode = 200
-				response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
-			}, data => {
+			let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
+			let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
+			let temperature = Math.max.apply(null, temperatures)
+			let rain = Math.max.apply(null, rains)
+			let message = getMessage(temperature, rain)
+			let dTemperature = `M 0 100 ${d(normalize(temperatures, 50))} L 100 100`
+			let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
+			response.statusCode = 200
+			response.end(HTML.format(message, dTemperature, dRain, location, temperature, rain))
+		}, data => {
 				response.statusCode = 500
 				response.end(HTML.format('ke ahnig', '', '', ''))
 			})
