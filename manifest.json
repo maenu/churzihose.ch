@@ -1,7 +1,13 @@
 {
-  "short_name": "churzihose.ch",
   "name": "churzi hose?",
+  "short_name": "churzihose.ch",
   "description": "churzi hose!",
+  "version": "0.0.3",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -13,10 +19,5 @@
       "type": "image/png",
       "sizes": "512x512"
     }
-  ],
-  "start_url": "/",
-  "background_color": "#0096FF",
-  "display": "standalone",
-  "scope": "/",
-  "theme_color": "#0096FF"
+  ]
 }

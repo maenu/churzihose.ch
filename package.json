@@ -1,16 +1,19 @@
 {
   "name": "churzihose.ch",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "churzi hose?",
-  "engines": {
-    "node": "12.x"
-  },
   "main": "index.js",
   "scripts": {
-    "start": "NODE_ENV=production node index.js",
-    "start-dev": "NODE_ENV=development PORT=5000 node index.js"
+    "build": "docker build -t maenuleu/ch.churzihose:latest -f Dockerfile .",
+    "dev-build": "docker build -t maenuleu/ch.churzihose:latest-dev -f Dockerfile.dev .",
+    "dev-run": "docker run -t -i --mount type=bind,source=\"$(pwd)\",target=/opt/src,readonly --publish 443:443 --publish 80:80 maenuleu/ch.churzihose:latest-dev",
+    "dev-create-cert": "mkcert -key-file privkey.pem -cert-file cert.pem localhost && cat cert.pem > chain.pem && cat \"$(mkcert -CAROOT)/rootCA.pem\" >> chain.pem"
   },
-  "dependencies": {},
-  "devDependencies": {},
+  "dependencies": {
+    "csv-parse": "^5.0.4",
+    "handlebars": "^4.7.7",
+    "jsdom": "^19.0.0",
+    "pg": "^8.7.3"
+  },
   "license": "MIT"
 }

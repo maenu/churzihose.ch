@@ -1,0 +1,9 @@
+FROM maenuleu/ch.churzihose:latest
+
+COPY ./cert.pem .
+COPY ./chain.pem .
+COPY ./privkey.pem .
+COPY ./docker-run-dev.sh .
+COPY ./docker-run-dev.js .
+
+CMD ["./docker-run-dev.sh"]

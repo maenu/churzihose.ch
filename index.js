@@ -2,142 +2,27 @@ const http = require('http')
 const https = require('https')
 const fs = require('fs')
 const url = require('url')
+const {Client} = require('pg')
+const Handlebars = require('handlebars')
+const {JSDOM} = require('jsdom')
+const {parse} = require('csv-parse/sync')
 
-const PORT = process.env.PORT
-const CH_ID = process.env.CH_ID
-const CH_SECRET = process.env.CH_SECRET
-const HTML = `<!doctype html>
-<html lang="en">
-<head>
-	<meta charset="utf-8">
-	<meta name="apple-mobile-web-app-capable" content="yes">
-	<meta name="mobile-web-app-capable" content="yes">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>churzi hose?</title>
-	<link rel="manifest" href="/manifest.json">
-	<link rel="shortcut icon" type="image/x-icon" href="/icon-512.png" />
-	<link rel="icon" type="image/x-icon" href="/icon-512.png" />
-	<style>
-		*, *::before, *::after {
-  			box-sizing: border-box;
-  			margin: 0;
-  			padding: 0;
-		}
-		html, body {
-			width: 100%;
-			height: 100%;
-  			font-family: Helvetica, Arial, sans-serif;
-  			color: rgba(0, 127, 255, 0.5);
-		}
-		.overlay {
-			display: grid;
-			position: absolute;
-			top: 0;
-			left: 0;
-			width: 100%;
-			height: 100%;
-			cursor: pointer;
-		}
-		.overlay > p {
-			margin: 3em auto auto auto;
-			user-select: none;
-			padding-bottom: 3em;
-			text-align: center;
-		}
-		.message {
-  			font-size: 2em;
-		}
-		.label {
-  			position: absolute;
-  			padding: 0.25em;
-		}
-		.temperature {
-			right: 0;
-  			color: rgba(0, 127, 255, 0.5);
-		}
-		.rain {
-			left: 0;
-  			color: rgba(255, 127, 0, 0.5);
-		}
-		.min {
-			bottom: 0;
-		}
-		.max {
-			top: 0;
-		}
-		.time {
-  			position: absolute;
-  			top: 0;
-  			left: 0;
-  			width: 100%;
-  			height: 100%;
-    		background-blend-mode: multiply;
-  			background: rgba(255, 255, 2555, 0.25);
-		}
-	</style>
-	<script>
-		const load = () => {
-			document.querySelector('.message').innerHTML = 'wart hurti...'
-			navigator.geolocation.getCurrentPosition(e => {
-				window.location.href = '/location?latitude=' + e.coords.latitude + '&longitude=' + e.coords.longitude
-			}, e => {
-				document.querySelector('.message').innerHTML = 'aktivier doch ortigdienscht ide ischtellige du möff, süsch chani o nüt mache: einstellungen > datenschutz > ortungsdienste > safari'
-			})
-		}
-		document.addEventListener('DOMContentLoaded', () => {
-			if (window.location.pathname !== '/location') {
-				document.querySelectorAll('.meta, .label, .time, svg').forEach(e => e.style.display = 'none')
-			} else {
-				let now = new Date()
-				document.querySelector('.clock').innerHTML = now.toLocaleTimeString()
-				document.querySelector('.time').style.width = '' + 100 * (now.getHours() * 60 + now.getMinutes()) / (24 * 60) + '%'
-			}
-			document.querySelector('.overlay').addEventListener('click', load)
-			document.querySelector('.overlay').addEventListener('touchend', load)
-			if (window.location.pathname === '/') {
-				load()
-			}
-		})
-	</script>
-</head>
-<body>
-	<svg width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
-		<path d="{1}" fill="rgba(255, 127, 0, 0.5)"></path>
-		<path d="{2}" fill="rgba(0, 127, 255, 0.5)"></path>
-	</svg>
-	<div class="time"></div>
-	<p class="label temperature min">0°C</p>
-	<p class="label temperature max">40°C</p>
-	<p class="label rain min">0%</p>
-	<p class="label rain max">100%</p>
-	<div class="overlay">
-		<p>
-			<span class="message">{0}</span>
-			<span class="meta">
-				<br>
-				<br>
-				<span class="clock"></span>
-				<br>
-				{3}
-				<br>
-				<br>
-				max {4}°C
-				<br>
-				max {5}% räge
-			</span>
-		</p>
-	</div>
-</body>
-</html>`
-
-String.prototype.format = function () {
-	let formatted = this
-	for (let i = 0; i < arguments.length; i = i + 1) {
-		let regexp = new RegExp(`\\{${i}\\}`, 'gi')
-		formatted = formatted.replace(regexp, arguments[i])
+const MODEL = parse(fs.readFileSync('models.csv').toString('utf8'), {
+  columns: true
+}).map(e => {
+	return {
+		light: e.light === '1',
+		cloud: parseInt(e.cloud),
+		rain: parseInt(e.rain),
+		snow: parseInt(e.snow),
+		lightning: parseInt(e.lightning),
+		fog: parseInt(e.fog)
 	}
-	return formatted
-}
+})
+Handlebars.registerHelper('json', (context) => JSON.stringify(context))
+const HTML = Handlebars.compile(fs.readFileSync('index.html').toString('utf8'))
+const DAY = 24 * 60 * 60 * 1000
+const TWO_PI_DAY = 2 * Math.PI / DAY
 
 const responsify = response => new Promise((resolve, reject) => {
 	let chunks = []
@@ -156,40 +41,134 @@ const json = options => new Promise((resolve, reject) => {
 		responsify(response).then(data => resolve(JSON.parse(data), response), reject)
 	}).end()
 })
-const getWeatherAuthentication = (id, secret) => json({
-	method: 'POST',
-	hostname: 'api.srgssr.ch',
-	path: '/oauth/v1/accesstoken?grant_type=client_credentials',
-	headers: {
-		Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`
-	}
+const dom = options => new Promise((resolve, reject) => {
+	https.request(options, response => {
+		responsify(response).then(data => resolve(new JSDOM(data), response), reject)
+	}).end()
 })
-const getWeatherForecast = (latitude, longitude, token) => json({
-	method: 'GET',
-	hostname: 'api.srgssr.ch',
-	path: `/forecasts/v1.0/weather/24hour?latitude=${latitude}&longitude=${longitude}`,
-	headers: {
-		Authorization: `Bearer ${token}`
+
+const light = (sunrise, sunset, x) => Math.sin(TWO_PI_DAY * (sunrise - sunset)) - Math.sin(TWO_PI_DAY * (x - sunset))
+const getAare = async () => {
+	const schoenau = await dom({
+		method: 'GET',
+		hostname: 'www.hydrodaten.admin.ch',
+		path: '/de/2135.html'
+	})
+	const data = Array.from(schoenau.window.document.querySelector('table').querySelectorAll('tbody tr:first-child td')).map(e => parseFloat(e.textContent))
+	return {
+		abfluss: data[0],
+		wasserstand: data[1],
+		temperatur: data[2]
 	}
-})
-const getMessage = (temperature, rain) => {
-	if (temperature >= 25) {
+}
+const getLocation = async (longitude, latitude) => {
+	const client = new Client({
+		host: '/tmp',
+		database: 'plz',
+		user: 'postgres'
+	})
+	await client.connect()
+	const result = await client.query(`select kurztext, plz
+		from ortschaft
+			join ortschaftsname on (ortschaftsname.ortschaftsname_von = ortschaft.t_id)
+			join plz6 on (plz6.plz6_von = ortschaft.t_id)
+		where st_contains(plz6.flaeche, st_transform(st_geomfromtext('POINT('||$1||' '||$2||')', 4326), 21781))`, [
+		longitude, latitude
+	])
+	await client.end()
+	if (result.rows.length === 0) {
+		return null
+	}
+	return result.rows[0]
+}
+const getWeather = async plz => {
+	const weather = await json({
+		method: 'GET',
+		hostname: 'app-prod-ws.meteoswiss-app.ch',
+		path: `/v1/plzDetail?plz=${plz}00`
+	})
+	const start = weather.graph.start
+	const sunrise = weather.graph.sunrise[0]
+	const sunset = weather.graph.sunset[0]
+	const day = Math.sin(TWO_PI_DAY * (sunrise - sunset))
+	const now = Date.now()
+	const amplitude = light(sunrise, sunset, now)
+	const models = weather.graph.weatherIcon3h.slice(0, 8).map((n, i) => MODEL[n % 100 - 1])
+	const lightness = []
+	for (let i = 0; i <= 8; i = i + 1) {
+		lightness.push({
+			x: 100 * i / 8,
+			y: 25 + 50 * (light(sunrise, sunset, start + i / 8 * DAY) - day + 1) / 2
+		})
+	}
+	const winds = points(weather.graph.windSpeed3h.slice(0, 8), 120)
+	const rains = points(weather.graph.precipitation10m, 50)
+	const temperatures = points(weather.graph.temperatureMean1h.slice(0, 24), 40)
+	return {
+		models: models,
+		original: weather,
+		lightness: lightness,
+		sunrise: 100 * (sunrise - start) / DAY,
+		sunset: 100 * (sunset - start) / DAY,
+		light: {
+			x: 100 * (now - start) / DAY,
+			y: 50 - 50 * (amplitude < 0 ? -amplitude / (1 - day) : amplitude / (1 + day)),
+			class: amplitude < 0 ? 'moon' : 'sun'
+		},
+		layers: [{
+			class: 'wind',
+			domain: [0, 120],
+			unit: 'km/h',
+			min: min(winds),
+			max: max(winds),
+			d: d(winds, 0.5)
+		}, {
+			class: 'rain',
+			domain: [0, 50],
+			unit: 'mm/h',
+			min: min(rains),
+			max: max(rains),
+			d: d(rains, 0.2)
+		}, {
+			class: 'temperature',
+			domain: [0, 40],
+			unit: '°C',
+			min: min(temperatures),
+			max: max(temperatures),
+			d: d(temperatures, 0)
+		}].sort((a, b) => b.max.v / b.domain[1] - a.max.v / a.domain[1])
+	}
+}
+const getMessage = (weather) => {
+	const temparature = weather.layers.filter(l => l.class === 'temperature')[0].max.v
+	if (temparature >= 25) {
 		return 'unbedingt!'
 	}
-	if (temperature >= 22) {
+	if (temparature >= 22) {
 		return 'ja eh!'
 	}
-	if (temperature >= 20) {
+	if (temparature >= 20) {
 		return 'chame'
 	}
-	if (temperature >= 17) {
+	if (temparature >= 17) {
 		return 'wedä meinsch...'
 	}
-	if (temperature >= 15) {
+	if (temparature >= 15) {
 		return 'würd nid'
 	}
 	return 'schpinsch?'
 }
+const getData = async (longitude, latitude) => {
+	const location = await getLocation(longitude, latitude)
+	const weather = await getWeather(location.plz)
+	return {
+		message: getMessage(weather),
+		location: location,
+		weather: weather,
+		aare: await getAare()
+	}
+}
+
 const add = (p, q) => {
 	return {
 		x: p.x + q.x,
@@ -249,32 +228,33 @@ const d = (points, smoothing = 0.5) => {
 	}
 	return d
 }
-const normalize = (a, h) => {
-	a = a.map((y, i) => {
-		return {
-			x: i * 100 / 8 + 100 / 16,
-			y: 100 - y * 100 / h
-		}
-	})
-	a.unshift({
+const points = (vs, h) => {
+	vs = vs.map((v, i) => point(v, i, h, vs.length))
+	vs.unshift({
 		x: 0,
-		y: (3 * a[0].y - a[1].y) / 2
+		y: (3 * vs[0].y - vs[1].y) / 2
 	})
-	a.push({
+	vs.push({
 		x: 100,
-		y: (3 * a[a.length - 1].y - a[a.length - 2].y) / 2
+		y: (3 * vs[vs.length - 1].y - vs[vs.length - 2].y) / 2
 	})
-	return a
+	return vs
 }
-
-http.createServer((request, response) => {
-	if (request.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV !== 'development') {
-		response.writeHead(301, {
-			'Location': 'https://' + request.headers['host'] + request.url
-		})
-		response.end()
-		return
+const point = (v, i, h, d) => {
+	return {
+		v: v,
+		x: i * 100 / d + 100 / (2 * d),
+		y: 100 - v * 100 / h
 	}
+}
+const min = (ps) => ps.filter(p => p.hasOwnProperty('v')).reduce((a, b) => a.v < b.v ? a : b)
+const max = (ps) => ps.filter(p => p.hasOwnProperty('v')).reduce((a, b) => a.v > b.v ? a : b)
+
+const server = https.createServer({
+			key: fs.readFileSync('privkey.pem'),
+			cert: fs.readFileSync('cert.pem'),
+			ca: fs.readFileSync('chain.pem')
+		}, (request, response) => {
 	if (['/manifest.json', '/icon-192.png', '/icon-512.png'].indexOf(request.url) >= 0) {
 		let p = request.url.substring(1)
 		response.writeHead(200, {
@@ -286,37 +266,47 @@ http.createServer((request, response) => {
 	}
 	if (request.url === '/') {
 		response.statusCode = 200
-		response.end(HTML.format('wart hurti...'))
+		response.end(HTML({ message: 'wart hurti...' }))
 		return
 	}
 	if (!request.url.startsWith('/location')) {
 		response.statusCode = 404
-		response.end(HTML.format('das gits nid'))
+		response.end(HTML({ message: 'das gits nid'}))
 		return
 	}
 	let u = new url.URL('http://' + request.headers['host'] + request.url)
-	let latitude = parseFloat(u.searchParams.get('latitude'))
 	let longitude = parseFloat(u.searchParams.get('longitude'))
-	if (isNaN(latitude) || isNaN(longitude)) {
+	let latitude = parseFloat(u.searchParams.get('latitude'))
+	if (isNaN(longitude) || isNaN(latitude)) {
 		response.statusCode = 404
-		response.end(HTML.format('das gits nid'))
+		response.end(HTML({ message: 'das gits nid'}))
 		return
 	}
-	getWeatherAuthentication(CH_ID, CH_SECRET)
-		.then(authentication => getWeatherForecast(latitude, longitude, authentication.access_token))
-		.then(forecast => {
-			let location = forecast.info.name.de
-			let temperatures = forecast['24hours'].map(d => parseFloat(d.values[1].ttt))
-			let rains = forecast['24hours'].map(d => parseFloat(d.values[6].pr3))
-			let temperature = Math.max.apply(null, temperatures)
-			let rain = Math.max.apply(null, rains)
-			let message = getMessage(temperature, rain)
-			let dTemperature = `M 0 100 ${d(normalize(temperatures, 40))} L 100 100`
-			let dRain = `M 0 100 ${d(normalize(rains, 100))} L 100 100`
-			response.statusCode = 200
-			response.end(HTML.format(message, dRain, dTemperature, location, temperature, rain))
-		}, data => {
-			response.statusCode = 500
-			response.end(HTML.format('ke ahnig'))
+	getData(longitude, latitude).then(data => {
+		response.statusCode = 200
+		response.end(HTML(data))
+	}, error => {
+		console.error(error)
+		response.statusCode = 500
+		response.end(HTML({ message: 'ke ahnig' }))
+	})
+})
+server.listen(443)
+
+let timeout = null
+fs.watch('cert.pem', () => {
+	clearTimeout(timeout)
+	timeout = setTimeout(() => {
+		server.setSecureContext({
+			key: fs.readFileSync('privkey.pem'),
+			cert: fs.readFileSync('cert.pem'),
+			ca: fs.readFileSync('chain.pem')
 		})
-}).listen(PORT)
+	}, 1000)
+})
+
+http.createServer((request, response) => {
+	response.statusCode = 301
+	response.setHeader('location', `https://${request.headers.host}${request.url}`)
+	response.end()
+}).listen(80)

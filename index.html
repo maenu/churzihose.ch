@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>churzi hose?</title>
+	<link rel="manifest" href="/manifest.json">
+	<link rel="shortcut icon" type="image/x-icon" href="/icon-512.png" />
+	<link rel="icon" type="image/x-icon" href="/icon-512.png" />
+	<style>
+		*, *::before, *::after {
+  			box-sizing: border-box;
+  			margin: 0;
+  			padding: 0;
+		}
+		html, body {
+			width: 100%;
+			height: 100%;
+			overflow: hidden;
+  			font-family: Helvetica, Arial, sans-serif;
+  			color: #434343;
+		}
+		.layer {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+		}
+		.overlay {
+			cursor: pointer;
+			padding: 1em;
+			text-align: center;
+		}
+		.sky {
+			background: linear-gradient(to right, #003a8c {{weather.sunrise}}%, #bae7ff {{weather.sunrise}}% {{weather.sunset}}%, #003a8c {{weather.sunset}}%);
+			filter: url(#sky);
+		}
+		.light {
+		    position: absolute;
+		    width: 64px;
+		    height: 64px;
+		    border-radius: 32px;
+			transform: translate(-50%,-50%);
+			opacity: 0.7;
+		}
+		.sun {
+		    background: #fadb14;
+    		filter: drop-shadow(0 0 5px #fadb14) drop-shadow(0 0 15px #fadb14) drop-shadow(0 0 50px #fadb14);
+		}
+		.moon {
+		    background: #feffe6;
+    		filter: drop-shadow(0 0 5px #feffe6) drop-shadow(0 0 15px #feffe6) drop-shadow(0 0 50px #feffe6);
+		}
+		.cloud-1 {
+			background: #434343;
+			opacity: 0.1;
+		}
+		.cloud-2 {
+			background: #434343;
+			opacity: 0.2;
+		}
+		.cloud-3 {
+			background: #434343;
+			opacity: 0.3;
+		}
+		.cloud-4 {
+			background: #434343;
+			opacity: 0.5;
+		}
+		.min, .max {
+			position: absolute;
+			transform: translate(-50%,-1.5em);
+  			opacity: 0.7;
+			filter: brightness(50%);
+		}
+		path.temperature {
+  			fill: url(#grey);
+			filter: url(#rock) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+  			opacity: 0.7;
+		}
+		.labels .temperature {
+  			color: #bfbfbf;
+		}
+		path.wind {
+  			fill: url(#green);
+  			opacity: 0.7;
+			filter: url(#grass) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+		}
+		.labels .wind {
+  			color: #389e0d;
+		}
+		path.rain {
+  			fill: #1890ff;
+  			opacity: 0.7;
+			filter: url(#water) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+		}
+		.labels .rain {
+  			color: #1890ff;
+		}
+	</style>
+	<script>
+		document.addEventListener('DOMContentLoaded', () => {
+			if (window.location.pathname !== '/location') {
+				document.querySelectorAll('.overlay > :not(.message), .time, svg').forEach(e => e.style.display = 'none')
+			} else {
+				let now = new Date()
+				document.querySelector('.clock').innerHTML = now.toLocaleTimeString()
+			}
+			const load = () => {
+				document.querySelector('.message').innerHTML = 'wart hurti...'
+				navigator.geolocation.getCurrentPosition(e => {
+					window.location.href = '/location?longitude=' + e.coords.longitude  + '&latitude=' + e.coords.latitude
+				}, e => {
+					document.querySelector('.message').innerHTML = 'aktivier doch ortigdienscht ide ischtellige du möff, süsch chani o nüt mache'
+				})
+			}
+			const labels = document.querySelector('.labels')
+			const help = e => {
+				e.preventDefault()
+				e.stopPropagation()
+				labels.hidden = !labels.hidden
+			}
+			document.querySelector('.help').addEventListener('click', help)
+			document.querySelector('.help').addEventListener('touchend', help)
+			document.querySelector('.overlay').addEventListener('click', load)
+			document.querySelector('.overlay').addEventListener('touchend', load)
+			if (window.location.pathname === '/') {
+				load()
+			}
+
+			{{#if weather.models}}
+			window.weather = {{{json weather}}}
+			let canvas = document.querySelector('canvas')
+			canvas.width = document.body.clientWidth
+			canvas.height = document.body.clientHeight
+			let context = canvas.getContext('2d')
+			class Model {
+				constructor(values, i) {
+					this.values = values
+					this.width = Math.ceil(canvas.width / 8)
+					this.height = canvas.height
+					this.x = this.width * i
+					this.rain = this.particles(this.values.rain * 100, 4, 8)
+					this.snow = this.particles(this.values.snow * 100, 1, 2)
+				}
+				particles(n, vx, vy) {
+					let ps = []
+					for (let i = 0; i < n; i = i + 1) {
+						ps.push({
+							x: this.x + Math.random() * this.width,
+							y: Math.random() * this.height,
+							l: Math.random() * 1,
+							vx: Math.random() * vx - vx / 2,
+							vy: Math.random() * vy + vy
+						})
+					}
+					return ps
+				}
+				clear() {
+					context.clearRect(this.x, 0, this.width, this.height)
+				}
+				drawParticles(ps) {
+					for (let i = 0; i < ps.length; i = i + 1) {
+						let p = ps[i]
+						context.beginPath()
+						context.moveTo(this.x + p.x, p.y)
+						context.lineTo(this.x + p.x + p.l * p.vx, p.y + p.l * p.vy)
+						context.stroke()
+						p.x = p.x + p.vx
+						p.y = p.y + p.vy
+						if (p.x > this.width || p.x < 0) {
+							p.vx = -p.vx
+							p.x = p.x + 2 * p.vx
+						}
+						if (p.y > this.height) {
+							p.x = Math.random() * this.width
+							p.y = -8
+						}
+					}
+				}
+				animate() {
+					this.clear()
+					context.strokeStyle = 'rgba(186,231,255,0.7)'
+					context.lineWidth = 1
+					context.lineCap = 'round'
+					this.drawParticles(this.rain)
+					context.strokeStyle = 'rgba(230,247,255,0.7)'
+					context.lineWidth = 3
+					context.lineCap = 'round'
+					this.drawParticles(this.snow)
+				}
+			}
+			const models = {{{json weather.models}}}.map((e, i) => new Model(e, i))
+			setInterval(() => models.forEach(e => e.animate()), 30)
+			{{/if}}
+		})
+	</script>
+</head>
+<body>
+	<div class="layer sky"></div>
+	<div class="light {{weather.light.class}}" style="top: {{weather.light.y}}%; left: {{weather.light.x}}%;"></div>
+	<svg class="layer" width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
+		<defs>
+			<linearGradient id="grey" x1="0" x2="0" y1="0" y2="1">
+				<stop offset="0%" stop-color="#f0f0f0"></stop>
+				<stop offset="100%" stop-color="#434343"></stop>
+			</linearGradient>
+			<linearGradient id="green" x1="0" x2="0" y1="0" y2="1">
+				<stop offset="0%" stop-color="#73d13d"></stop>
+				<stop offset="100%" stop-color="#237804"></stop>
+			</linearGradient>
+			<filter id="rock" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2"></feTurbulence>
+				<feComponentTransfer>
+					<feFuncA type="table" tableValues="1 0"></feFuncA>
+				</feComponentTransfer>
+				<feDiffuseLighting lighting-color="white" surfaceScale="16">
+					<fePointLight x="80" y="0" z="30"></fePointLight>
+				</feDiffuseLighting>
+				<feComposite operator="in" in2="SourceGraphic"></feComposite>
+				<feBlend in="SourceGraphic" mode="multiply"></feBlend>
+			</filter>
+			<filter id="sky" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.005 0.02" result="noise" numOctaves="2"></feTurbulence>
+				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="8">
+					<feDistantLight azimuth="30" elevation="60"></feDistantLight>
+				</feDiffuseLighting>
+				<feComposite operator="in" in="noise2" in2="SourceGraphic" result="texture"></feComposite>
+				<feBlend in="SourceGraphic" in2="texture" mode="multiply"></feBlend>
+			</filter>
+			<filter id="grass" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.2 0.3" result="noise" numOctaves="3"></feTurbulence>
+    			<feDisplacementMap in2="noise" in="SourceGraphic" scale="4" xChannelSelector="G" yChannelSelector="B" result="out"></feDisplacementMap>
+				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="2">
+    				<fePointLight x="80" y="-10" z="20"></fePointLight>
+				</feDiffuseLighting>
+				<feComposite operator="in" in="noise2" in2="out" result="texture"></feComposite>
+				<feBlend in="out" in2="texture" mode="hard-light"></feBlend>
+			</filter>
+			<filter id="water" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="fractalNoise" baseFrequency="0.02 0.03" result="noise" numOctaves="8"></feTurbulence>
+				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="32">
+					<feDistantLight azimuth="45" elevation="60"></feDistantLight>
+				</feDiffuseLighting>
+				<feComposite operator="in" in="noise2" in2="SourceGraphic" result="texture"></feComposite>
+				<feBlend in="SourceGraphic" in2="texture" mode="multiply"></feBlend>
+			</filter>
+		</defs>
+	    {{#each weather.layers}}
+			<path d="M 0 100 {{this.d}} L 100 100" class="{{this.class}}"></path>
+	    {{/each}}
+	</svg>
+	<canvas class="layer models"></canvas>
+	<div class="layer labels">
+	    {{#each weather.layers}}
+			<div class="{{this.class}} min" style="top: {{this.min.y}}%; left: {{this.min.x}}%;">{{this.min.v}}{{this.unit}}</div>
+			<div class="{{this.class}} max" style="top: {{this.max.y}}%; left: {{this.max.x}}%;">{{this.max.v}}{{this.unit}}</div>
+	    {{/each}}
+	</div>
+	<div class="layer overlay">
+		<h1 class="message">{{message}}</h1>
+		<h2 class="clock"></h2>
+		<h2 class="location">{{location.kurztext}}</h2>
+		<h2 class="aare">Aare</h2>
+		<div class="aare">{{aare.temperatur}}°C bi {{aare.abfluss}}m<sup>3</sup>/s</div>
+		<div class="help">?</div>
+	</div>
+</body>
+</html>
