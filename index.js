@@ -7,9 +7,9 @@ const Handlebars = require('handlebars')
 const {JSDOM} = require('jsdom')
 const {parse} = require('csv-parse/sync')
 
-const MODEL = parse(fs.readFileSync('models.csv').toString('utf8'), {
-  columns: true
-}).map(e => {
+Handlebars.registerHelper('json', (context) => JSON.stringify(context))
+
+const MODEL = parse(fs.readFileSync('models.csv').toString('utf8'), { columns: true }).map(e => {
 	return {
 		light: e.light === '1',
 		cloud: parseInt(e.cloud),
@@ -19,10 +19,10 @@ const MODEL = parse(fs.readFileSync('models.csv').toString('utf8'), {
 		fog: parseInt(e.fog)
 	}
 })
-Handlebars.registerHelper('json', (context) => JSON.stringify(context))
 const HTML = Handlebars.compile(fs.readFileSync('index.html').toString('utf8'))
-const DAY = 24 * 60 * 60 * 1000
-const TWO_PI_DAY = 2 * Math.PI / DAY
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
 
 const responsify = response => new Promise((resolve, reject) => {
 	let chunks = []
@@ -46,8 +46,32 @@ const dom = options => new Promise((resolve, reject) => {
 		responsify(response).then(data => resolve(new JSDOM(data), response), reject)
 	}).end()
 })
+const points = (values, interval, start = 0) => {
+	return values.map((value, i) => {
+		return {
+			x: start + (i + 0.5) * interval,
+			y: value
+		}
+	})
+}
+const extrema = (points) => {
+	const days = []
+	for (const point of points) {
+		const day = Math.floor(point.x / (60 * 24))
+		if (day === days.length) {
+			days.push([point, point])
+		} else {
+			if (point.y < days[day][0].y) {
+				days[day][0] = point
+			}
+			if (point.y > days[day][1].y) {
+				days[day][1] = point
+			}
+		}
+	}
+	return days.flat()
+}
 
-const light = (sunrise, sunset, x) => Math.sin(TWO_PI_DAY * (sunrise - sunset)) - Math.sin(TWO_PI_DAY * (x - sunset))
 const getAare = async () => {
 	const schoenau = await dom({
 		method: 'GET',
@@ -87,60 +111,42 @@ const getWeather = async plz => {
 		hostname: 'app-prod-ws.meteoswiss-app.ch',
 		path: `/v1/plzDetail?plz=${plz}00`
 	})
-	const start = weather.graph.start
-	const sunrise = weather.graph.sunrise[0]
-	const sunset = weather.graph.sunset[0]
-	const day = Math.sin(TWO_PI_DAY * (sunrise - sunset))
-	const now = Date.now()
-	const amplitude = light(sunrise, sunset, now)
-	const models = weather.graph.weatherIcon3h.slice(0, 8).map((n, i) => MODEL[n % 100 - 1])
-	const lightness = []
-	for (let i = 0; i <= 8; i = i + 1) {
-		lightness.push({
-			x: 100 * i / 8,
-			y: 25 + 50 * (light(sunrise, sunset, start + i / 8 * DAY) - day + 1) / 2
-		})
-	}
-	const winds = points(weather.graph.windSpeed3h.slice(0, 8), 120)
-	const rains = points(weather.graph.precipitation10m, 50)
-	const temperatures = points(weather.graph.temperatureMean1h.slice(0, 24), 40)
+	const graph = weather.graph
+	const models = graph.weatherIcon3h.map((n, i) => MODEL[n % 100 - 1])
+	const winds = points(graph.windSpeed3h, 3 * 60)
+	const wets = points(graph.precipitation10m, 10).concat(points(graph.precipitation1h, 60, (graph.startLowResolution - graph.start) / MINUTE))
+	const temperatures = points(graph.temperatureMean1h, 60)
 	return {
+		domain: [0, temperatures[temperatures.length - 1].x + 30],
+		sun: graph.sunrise.map((e, i) => [(e - graph.start) / MINUTE, (graph.sunset[i] - graph.start) / MINUTE]),
 		models: models,
-		original: weather,
-		lightness: lightness,
-		sunrise: 100 * (sunrise - start) / DAY,
-		sunset: 100 * (sunset - start) / DAY,
-		light: {
-			x: 100 * (now - start) / DAY,
-			y: 50 - 50 * (amplitude < 0 ? -amplitude / (1 - day) : amplitude / (1 + day)),
-			class: amplitude < 0 ? 'moon' : 'sun'
-		},
-		layers: [{
-			class: 'wind',
-			domain: [0, 120],
-			unit: 'km/h',
-			min: min(winds),
-			max: max(winds),
-			d: d(winds, 0.5)
-		}, {
-			class: 'rain',
-			domain: [0, 50],
-			unit: 'mm/h',
-			min: min(rains),
-			max: max(rains),
-			d: d(rains, 0.2)
-		}, {
-			class: 'temperature',
-			domain: [0, 40],
-			unit: '°C',
-			min: min(temperatures),
-			max: max(temperatures),
-			d: d(temperatures, 0)
-		}].sort((a, b) => b.max.v / b.domain[1] - a.max.v / a.domain[1])
+		values: {
+			temperature: {
+				range: [0, 40],
+				unit: '°C',
+				extrema: extrema(temperatures),
+				points: temperatures,
+				smoothing: 0
+			},
+			wind: {
+				range: [0, 120],
+				unit: 'km/h',
+				extrema: extrema(winds),
+				points: winds,
+				smoothing: 0.5
+			},
+			wet: {
+				range: [0, 50],
+				unit: 'mm/h',
+				extrema: extrema(wets),
+				points: wets,
+				smoothing: 0.5
+			}
+		}
 	}
 }
 const getMessage = (weather) => {
-	const temparature = weather.layers.filter(l => l.class === 'temperature')[0].max.v
+	const temparature = weather.values.temperature.extrema[1].y
 	if (temparature >= 25) {
 		return 'unbedingt!'
 	}
@@ -168,87 +174,6 @@ const getData = async (longitude, latitude) => {
 		aare: await getAare()
 	}
 }
-
-const add = (p, q) => {
-	return {
-		x: p.x + q.x,
-		y: p.y + q.y
-	}
-}
-const subtract = (p, q) => {
-	return {
-		x: p.x - q.x,
-		y: p.y - q.y
-	}
-}
-const multiply = (p, a) => {
-	return {
-		x: a * p.x,
-		y: a * p.y
-	}
-}
-const abs = (p) => Math.sqrt(Math.pow(p.x, 2) + Math.pow(p.y, 2))
-const dot = (p, q) => p.x * q.x + p.y * q.y
-const cos = (p, q) => dot(p, q) / (abs(p) * abs(q))
-const unit = (p) => {
-	let d = abs(p)
-	if (d === 0) {
-		return {
-			x: 0,
-			y: 0
-		}
-	} else {
-		return multiply(p, 1 / d)
-	}
-}
-const start = (points, i, d = 1) => {
-	let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
-	let p = points[Math.min(Math.max(i, 0), points.length - 1)]
-	let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
-	let q = unit(subtract(pn, pp))
-	let c = abs(subtract(pn, p))
-	return add(p, multiply(q, d * c))
-}
-const end = (points, i, d = 1) => {
-	let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
-	let p = points[Math.min(Math.max(i, 0), points.length - 1)]
-	let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
-	let q = unit(subtract(pp, pn))
-	let c = abs(subtract(pp, p))
-	return add(p, multiply(q, d * c))
-}
-const d = (points, smoothing = 0.5) => {
-	let d = `L ${points[0].x} ${points[0].y}`
-	for (let i = 1; i < points.length; i = i + 1) {
-		let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
-		let p = points[i]
-		let ps = start(points, i - 1, smoothing)
-		let pe = end(points, i, smoothing)
-		d = `${d} C ${ps.x} ${ps.y},  ${pe.x} ${pe.y}, ${p.x} ${p.y}`
-	}
-	return d
-}
-const points = (vs, h) => {
-	vs = vs.map((v, i) => point(v, i, h, vs.length))
-	vs.unshift({
-		x: 0,
-		y: (3 * vs[0].y - vs[1].y) / 2
-	})
-	vs.push({
-		x: 100,
-		y: (3 * vs[vs.length - 1].y - vs[vs.length - 2].y) / 2
-	})
-	return vs
-}
-const point = (v, i, h, d) => {
-	return {
-		v: v,
-		x: i * 100 / d + 100 / (2 * d),
-		y: 100 - v * 100 / h
-	}
-}
-const min = (ps) => ps.filter(p => p.hasOwnProperty('v')).reduce((a, b) => a.v < b.v ? a : b)
-const max = (ps) => ps.filter(p => p.hasOwnProperty('v')).reduce((a, b) => a.v > b.v ? a : b)
 
 const server = https.createServer({
 			key: fs.readFileSync('privkey.pem'),

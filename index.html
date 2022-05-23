@@ -10,138 +10,318 @@
 	<link rel="shortcut icon" type="image/x-icon" href="/icon-512.png" />
 	<link rel="icon" type="image/x-icon" href="/icon-512.png" />
 	<style>
+		:root {
+			--temperature-dark: #434343;
+			--temperature-light: #f0f0f0;
+			--wind-dark: #389e0d;
+			--wind-light: #52c41a;
+			--wet-dark: #0050b3;
+			--wet-light: #1890ff;
+			--sky-night: #096dd9;
+			--sky-day: #40a9ff;
+			--light-sun: #fadb14;
+			--light-moon: #feffe6;
+		}
 		*, *::before, *::after {
   			box-sizing: border-box;
   			margin: 0;
   			padding: 0;
 		}
-		html, body {
+		html {
+   		 	position: relative;
 			width: 100%;
 			height: 100%;
-			overflow: hidden;
+   		 	overflow: hidden;
+		}
+		body {
+   		 	position: relative;
+			width: 100%;
+			height: 100%;
   			font-family: Helvetica, Arial, sans-serif;
-  			color: #434343;
+  			color: var(--temperature-light);
+			overflow: auto hidden;
+			scroll-behavior: smooth;
+			scroll-snap-type: x proximity;
+		}
+		.none {
+			display: none !important;
 		}
 		.layer {
 			position: absolute;
 			top: 0;
 			left: 0;
-			width: 100%;
-			height: 100%;
 		}
-		.overlay {
+		svg, canvas {
+			pointer-events: none;
+		}
+		#overlay {
 			cursor: pointer;
+			display: flex;
+			flex-direction: row;
+		}
+		#overlay > * {
+			position: relative;
+			flex: 1;
+    		padding: 1em;
+			scroll-snap-align: start;
+		}
+		h1 {
+			margin-bottom: 1rem;
+		}
+		#help {
+			position: fixed;
+			top: 0;
+			right: 0;
 			padding: 1em;
-			text-align: center;
 		}
-		.sky {
-			background: linear-gradient(to right, #003a8c {{weather.sunrise}}%, #bae7ff {{weather.sunrise}}% {{weather.sunset}}%, #003a8c {{weather.sunset}}%);
-			filter: url(#sky);
+		#sky {
+			filter: url(#sky-filter);
 		}
-		.light {
-		    position: absolute;
-		    width: 64px;
-		    height: 64px;
-		    border-radius: 32px;
-			transform: translate(-50%,-50%);
+		#sky rect:first-child {
+			fill: var(--sky-night);
+		}
+		#sky rect:not(:first-child) {
+			fill: var(--sky-day);
+		}
+		#light {
 			opacity: 0.7;
 		}
-		.sun {
-		    background: #fadb14;
-    		filter: drop-shadow(0 0 5px #fadb14) drop-shadow(0 0 15px #fadb14) drop-shadow(0 0 50px #fadb14);
+		#light.sun {
+		    fill: var(--light-sun);
+    		filter: drop-shadow(0 0 5px var(--light-sun)) drop-shadow(0 0 15px var(--light-sun)) drop-shadow(0 0 50px var(--light-sun));
 		}
-		.moon {
-		    background: #feffe6;
-    		filter: drop-shadow(0 0 5px #feffe6) drop-shadow(0 0 15px #feffe6) drop-shadow(0 0 50px #feffe6);
+		#light.moon {
+		    fill: var(--light-moon);
+    		filter: drop-shadow(0 0 5px var(--light-moon)) drop-shadow(0 0 15px var(--light-moon)) drop-shadow(0 0 50px var(--light-moon));
 		}
-		.cloud-1 {
-			background: #434343;
-			opacity: 0.1;
+		#clouds rect {
+			fill: white;
 		}
-		.cloud-2 {
-			background: #434343;
-			opacity: 0.2;
-		}
-		.cloud-3 {
-			background: #434343;
-			opacity: 0.3;
-		}
-		.cloud-4 {
-			background: #434343;
-			opacity: 0.5;
-		}
-		.min, .max {
-			position: absolute;
-			transform: translate(-50%,-1.5em);
-  			opacity: 0.7;
-			filter: brightness(50%);
-		}
-		path.temperature {
-  			fill: url(#grey);
-			filter: url(#rock) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+		#values g {
   			opacity: 0.7;
 		}
-		.labels .temperature {
-  			color: #bfbfbf;
+		#values g.temperature {
+  			fill: url(#temperature-fill);
+			filter: url(#temperature-filter) drop-shadow(0 0 5px var(--temperature-light));
 		}
-		path.wind {
-  			fill: url(#green);
-  			opacity: 0.7;
-			filter: url(#grass) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+		#values g.wind {
+  			fill: url(#wind-fill);
+			filter: url(#wind-filter) drop-shadow(0 0 5px var(--wind-light));
 		}
-		.labels .wind {
-  			color: #389e0d;
+		#values g.wet {
+  			fill: url(#wet-fill);
+			filter: url(#wet-filter) drop-shadow(0 0 5px var(--wet-light));
 		}
-		path.rain {
-  			fill: #1890ff;
-  			opacity: 0.7;
-			filter: url(#water) drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+		#extrema {
+			opacity: 0.7;
 		}
-		.labels .rain {
-  			color: #1890ff;
+		text.temperature {
+  			fill: var(--temperature-light);
+		}
+		text.wind {
+  			fill: var(--wind-light);
+		}
+		text.wet {
+  			fill: var(--wet-light);
 		}
 	</style>
 	<script>
 		document.addEventListener('DOMContentLoaded', () => {
+			const BODY = document.querySelector('body')
+			const SVG = document.querySelector('svg')
+			const SVG_NS = 'http://www.w3.org/2000/svg'
+			const CANVAS = document.querySelector('canvas')
+			const LIGHT = document.querySelector('#light')
+			const SKY = document.querySelector('#sky')
+			const CLOUDS = document.querySelector('#clouds')
+			const LAYERS = document.querySelector('#values')
+			const EXTREMA = document.querySelector('#extrema')
+			const OVERLAY = document.querySelector('#overlay')
+			const HELP = document.querySelector('#help')
+			const MESSAGE = document.querySelector('#message')
+			const CLOCK = document.querySelector('#clock')
+			
 			if (window.location.pathname !== '/location') {
-				document.querySelectorAll('.overlay > :not(.message), .time, svg').forEach(e => e.style.display = 'none')
+				document.querySelectorAll('#overlay > :not(#message), #clock, svg').forEach(e => e.style.display = 'none')
 			} else {
 				let now = new Date()
-				document.querySelector('.clock').innerHTML = now.toLocaleTimeString()
+				CLOCK.innerHTML = now.toLocaleTimeString()
 			}
 			const load = () => {
-				document.querySelector('.message').innerHTML = 'wart hurti...'
+				document.querySelector('#message').innerHTML = 'wart hurti...'
 				navigator.geolocation.getCurrentPosition(e => {
-					window.location.href = '/location?longitude=' + e.coords.longitude  + '&latitude=' + e.coords.latitude
+					window.location.href = `/location?longitude=${e.coords.longitude}&latitude=${e.coords.latitude}`
 				}, e => {
-					document.querySelector('.message').innerHTML = 'aktivier doch ortigdienscht ide ischtellige du möff, süsch chani o nüt mache'
+					MESSAGE.innerHTML = 'aktivier doch ortigdienscht ide ischtellige du möff, süsch chani o nüt mache'
 				})
 			}
-			const labels = document.querySelector('.labels')
 			const help = e => {
 				e.preventDefault()
 				e.stopPropagation()
-				labels.hidden = !labels.hidden
+				OVERLAY.classList.toggle('none')
+				EXTREMA.classList.toggle('none')
 			}
-			document.querySelector('.help').addEventListener('click', help)
-			document.querySelector('.help').addEventListener('touchend', help)
-			document.querySelector('.overlay').addEventListener('click', load)
-			document.querySelector('.overlay').addEventListener('touchend', load)
+			HELP.addEventListener('click', help)
+			HELP.addEventListener('touchend', help)
+			OVERLAY.addEventListener('click', load)
+			OVERLAY.addEventListener('touchend', load)
 			if (window.location.pathname === '/') {
 				load()
 			}
 
-			{{#if weather.models}}
+			{{#if weather}}
 			window.weather = {{{json weather}}}
-			let canvas = document.querySelector('canvas')
-			canvas.width = document.body.clientWidth
-			canvas.height = document.body.clientHeight
-			let context = canvas.getContext('2d')
+			
+			const MINUTE = 60 * 1000
+			const HOUR = 60 * MINUTE
+			const DAY = 24 * HOUR
+			const TWO_PI_DAY = 2 * Math.PI / (24 * 60)
+			const SUNRISE = weather.sun[0][0]
+			const SUNSET = weather.sun[0][1]
+			const PERIOD = Math.sin(TWO_PI_DAY * (SUNRISE - SUNSET))
+			const START = new Date()
+			START.setHours(0, 0, 0, 0)
+			const NOW = (Date.now() - START.getTime()) / (60 * 1000)
+			
+			const add = (p, q) => {
+				return {
+					x: p.x + q.x,
+					y: p.y + q.y
+				}
+			}
+			const subtract = (p, q) => {
+				return {
+					x: p.x - q.x,
+					y: p.y - q.y
+				}
+			}
+			const multiply = (p, a) => {
+				return {
+					x: a * p.x,
+					y: a * p.y
+				}
+			}
+			const abs = (p) => Math.sqrt(Math.pow(p.x, 2) + Math.pow(p.y, 2))
+			const dot = (p, q) => p.x * q.x + p.y * q.y
+			const cos = (p, q) => dot(p, q) / (abs(p) * abs(q))
+			const unit = (p) => {
+				let d = abs(p)
+				if (d === 0) {
+					return {
+						x: 0,
+						y: 0
+					}
+				} else {
+					return multiply(p, 1 / d)
+				}
+			}
+			const start = (points, i, d = 1) => {
+				let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+				let p = points[Math.min(Math.max(i, 0), points.length - 1)]
+				let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
+				let q = unit(subtract(pn, pp))
+				let c = abs(subtract(pn, p))
+				return add(p, multiply(q, d * c))
+			}
+			const end = (points, i, d = 1) => {
+				let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+				let p = points[Math.min(Math.max(i, 0), points.length - 1)]
+				let pn = points[Math.min(Math.max(i + 1, 0), points.length - 1)]
+				let q = unit(subtract(pp, pn))
+				let c = abs(subtract(pp, p))
+				return add(p, multiply(q, d * c))
+			}
+			const d = (points, smoothing = 0.5) => {
+				points = [...points]
+				points.unshift({
+					x: (3 * points[0].x - points[1].x) / 2,
+					y: (3 * points[0].y - points[1].y) / 2
+				})
+				points.push({
+					x: (3 * points[points.length - 1].x - points[points.length - 2].x) / 2,
+					y: (3 * points[points.length - 1].y - points[points.length - 2].y) / 2
+				})
+				let d = `L ${points[0].x} ${points[0].y}`
+				for (let i = 1; i < points.length; i = i + 1) {
+					let pp = points[Math.min(Math.max(i - 1, 0), points.length - 1)]
+					let p = points[i]
+					let ps = start(points, i - 1, smoothing)
+					let pe = end(points, i, smoothing)
+					d = `${d} C ${ps.x} ${ps.y},  ${pe.x} ${pe.y}, ${p.x} ${p.y}`
+				}
+				return `M ${points[0].x} 0 ${d} L ${points[points.length - 1].x} 0 Z`
+			}
+
+			const DATE = new Date()
+			const DATE_OPTIONS = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }
+			for (const date of document.querySelectorAll('#overlay .date')) {
+				date.appendChild(document.createTextNode(DATE.toLocaleDateString('de-CH', DATE_OPTIONS)))
+				DATE.setDate(DATE.getDate() + 1)
+			}
+			
+			for (const [name, layer] of Object.entries(weather.values)) {
+				layer.group = document.createElementNS(SVG_NS, 'g')
+				layer.group.setAttributeNS(null, 'class', name)
+				layer.path = document.createElementNS(SVG_NS, 'path')
+				layer.path.setAttributeNS(null, 'd', d(layer.points, layer.smoothing))
+				layer.group.appendChild(layer.path)
+				LAYERS.appendChild(layer.group)
+				for (const extremum of layer.extrema) {
+					const label = document.createElementNS(SVG_NS, 'text')
+					label.setAttribute('text-anchor', 'middle')
+					label.setAttribute('x', `${100 * extremum.x / weather.domain[1]}%`)
+					label.setAttribute('y', `${100 * (1 - extremum.y / layer.range[1]) - 1}%`)
+					label.classList.add('extremum', name)
+					label.appendChild(document.createTextNode(`${extremum.y}${layer.unit}`))
+					extrema.appendChild(label)
+				}
+			}
+			/* TODO weather.models.forEach((model, i) => {
+				const rect = document.createElementNS(SVG_NS, 'rect')
+				rect.style.opacity = model.cloud / 4
+				rect.setAttribute('x', `${i * 100 / (6 * 8)}%`)
+				rect.setAttribute('y', '0')
+				rect.setAttribute('width', `${100 / (6 * 8)}%`)
+				rect.setAttribute('height', '100%')
+				CLOUDS.appendChild(rect)
+			})*/
+			for (const period of weather.sun) {
+				const a = 100 * period[0] / weather.domain[1]
+				const b = 100 * period[1] / weather.domain[1]
+				const rect = document.createElementNS(SVG_NS, 'rect')
+				rect.setAttribute('x', `${a}%`)
+				rect.setAttribute('y', '0')
+				rect.setAttribute('width', `${b - a}%`)
+				rect.setAttribute('height', '100%')
+				SKY.appendChild(rect)
+			}
+			const altitude = PERIOD - Math.sin(TWO_PI_DAY * (NOW - SUNSET))
+			LIGHT.classList.add(altitude < 0 ? 'moon' : 'sun')
+			
+			const onResize = (rect) => {
+				SVG.setAttribute('width', `${6 * rect.width}`)
+				SVG.setAttribute('height', `${rect.height}`)
+				SVG.setAttribute('viewBox', `0 0 ${6 * rect.width} ${rect.height}`)
+				CANVAS.setAttribute('width', `${6 * rect.width}`)
+				CANVAS.setAttribute('height', `${rect.height}`)
+				OVERLAY.style.width = `${6 * rect.width}px`
+				OVERLAY.style.height = `${rect.height}px`
+				LIGHT.setAttribute('cx', `${NOW * rect.width / (24 * 60)}`)
+				LIGHT.setAttribute('cy', `${(1 - (altitude < 0 ? -altitude / (1 - PERIOD) : altitude / (1 + PERIOD))) * rect.height}`)
+				for (const [name, layer] of Object.entries(weather.values)) {
+					layer.path.setAttribute('transform', `translate(0 ${rect.height}) scale(${rect.width / (24 * 60)} -${rect.height / layer.range[1]})`)
+				}
+			}
+			const resizeObserver = new ResizeObserver(([e]) => onResize(e.contentRect))
+			resizeObserver.observe(document.documentElement)
+			onResize(document.documentElement.getBoundingClientRect())
+
+			let context = CANVAS.getContext('2d')
 			class Model {
 				constructor(values, i) {
 					this.values = values
-					this.width = Math.ceil(canvas.width / 8)
-					this.height = canvas.height
+					this.width = Math.ceil(CANVAS.width / (6 * 8))
+					this.height = CANVAS.height
 					this.x = this.width * i
 					this.rain = this.particles(this.values.rain * 100, 4, 8)
 					this.snow = this.particles(this.values.snow * 100, 1, 2)
@@ -183,90 +363,108 @@
 				}
 				animate() {
 					this.clear()
-					context.strokeStyle = 'rgba(186,231,255,0.7)'
+					context.strokeStyle = 'rgba(230,247,255,0.7)'
 					context.lineWidth = 1
 					context.lineCap = 'round'
 					this.drawParticles(this.rain)
-					context.strokeStyle = 'rgba(230,247,255,0.7)'
+					context.strokeStyle = 'rgba(255,255,255,0.7)'
 					context.lineWidth = 3
 					context.lineCap = 'round'
 					this.drawParticles(this.snow)
 				}
 			}
-			const models = {{{json weather.models}}}.map((e, i) => new Model(e, i))
+			const models = weather.models.map((e, i) => new Model(e, i))
 			setInterval(() => models.forEach(e => e.animate()), 30)
 			{{/if}}
 		})
 	</script>
 </head>
 <body>
-	<div class="layer sky"></div>
-	<div class="light {{weather.light.class}}" style="top: {{weather.light.y}}%; left: {{weather.light.x}}%;"></div>
-	<svg class="layer" width="100vw" height="100vh" stroke="none" fill="none" viewBox="0 0 100 100" preserveAspectRatio="none">
+	<svg>
 		<defs>
-			<linearGradient id="grey" x1="0" x2="0" y1="0" y2="1">
-				<stop offset="0%" stop-color="#f0f0f0"></stop>
-				<stop offset="100%" stop-color="#434343"></stop>
+			<linearGradient id="temperature-fill" x1="0" x2="0" y1="0" y2="1">
+				<stop offset="0%" stop-color="var(--temperature-dark)"></stop>
+				<stop offset="100%" stop-color="var(--temperature-light)"></stop>
 			</linearGradient>
-			<linearGradient id="green" x1="0" x2="0" y1="0" y2="1">
-				<stop offset="0%" stop-color="#73d13d"></stop>
-				<stop offset="100%" stop-color="#237804"></stop>
+			<linearGradient id="wind-fill" x1="0" x2="0" y1="0" y2="1">
+				<stop offset="0%" stop-color="var(--wind-dark)"></stop>
+				<stop offset="100%" stop-color="var(--wind-light)"></stop>
 			</linearGradient>
-			<filter id="rock" x="0%" y="0%" width="100%" height="100%">
-				<feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2"></feTurbulence>
-				<feComponentTransfer>
-					<feFuncA type="table" tableValues="1 0"></feFuncA>
-				</feComponentTransfer>
+			<linearGradient id="wet-fill" x1="0" x2="0" y1="0" y2="1">
+				<stop offset="0%" stop-color="var(--wet-dark)"></stop>
+				<stop offset="100%" stop-color="var(--wet-light)"></stop>
+			</linearGradient>
+			<filter id="sky-filter" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.004 0.007" numOctaves="2"></feTurbulence>
 				<feDiffuseLighting lighting-color="white" surfaceScale="16">
-					<fePointLight x="80" y="0" z="30"></fePointLight>
+					<feDistantLight azimuth="30" elevation="60"></feDistantLight>
 				</feDiffuseLighting>
 				<feComposite operator="in" in2="SourceGraphic"></feComposite>
 				<feBlend in="SourceGraphic" mode="multiply"></feBlend>
 			</filter>
-			<filter id="sky" x="0%" y="0%" width="100%" height="100%">
-				<feTurbulence type="turbulence" baseFrequency="0.005 0.02" result="noise" numOctaves="2"></feTurbulence>
-				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="8">
+			<filter id="temperature-filter" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.01" numOctaves="2"></feTurbulence>
+				<feDiffuseLighting lighting-color="white" surfaceScale="16">
 					<feDistantLight azimuth="30" elevation="60"></feDistantLight>
 				</feDiffuseLighting>
-				<feComposite operator="in" in="noise2" in2="SourceGraphic" result="texture"></feComposite>
-				<feBlend in="SourceGraphic" in2="texture" mode="multiply"></feBlend>
+				<feComposite operator="in" in2="SourceGraphic"></feComposite>
+				<feBlend in="SourceGraphic" mode="multiply"></feBlend>
 			</filter>
-			<filter id="grass" x="0%" y="0%" width="100%" height="100%">
-				<feTurbulence type="turbulence" baseFrequency="0.2 0.3" result="noise" numOctaves="3"></feTurbulence>
-    			<feDisplacementMap in2="noise" in="SourceGraphic" scale="4" xChannelSelector="G" yChannelSelector="B" result="out"></feDisplacementMap>
-				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="2">
-    				<fePointLight x="80" y="-10" z="20"></fePointLight>
+			<filter id="wind-filter" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.01 0.03" numOctaves="1"></feTurbulence>
+				<feDiffuseLighting lighting-color="white" surfaceScale="16">
+					<feDistantLight azimuth="30" elevation="60"></feDistantLight>
 				</feDiffuseLighting>
-				<feComposite operator="in" in="noise2" in2="out" result="texture"></feComposite>
-				<feBlend in="out" in2="texture" mode="hard-light"></feBlend>
+				<feComposite operator="in" in2="SourceGraphic"></feComposite>
+				<feBlend in="SourceGraphic" mode="multiply"></feBlend>
 			</filter>
-			<filter id="water" x="0%" y="0%" width="100%" height="100%">
-				<feTurbulence type="fractalNoise" baseFrequency="0.02 0.03" result="noise" numOctaves="8"></feTurbulence>
-				<feDiffuseLighting in="noise" result="noise2" lighting-color="white" surfaceScale="32">
-					<feDistantLight azimuth="45" elevation="60"></feDistantLight>
+			<filter id="wet-filter" x="0%" y="0%" width="100%" height="100%">
+				<feTurbulence type="turbulence" baseFrequency="0.01 0.05" numOctaves="4"></feTurbulence>
+				<feDiffuseLighting lighting-color="white" surfaceScale="16">
+					<feDistantLight azimuth="30" elevation="60"></feDistantLight>
 				</feDiffuseLighting>
-				<feComposite operator="in" in="noise2" in2="SourceGraphic" result="texture"></feComposite>
-				<feBlend in="SourceGraphic" in2="texture" mode="multiply"></feBlend>
+				<feComposite operator="in" in2="SourceGraphic"></feComposite>
+				<feBlend in="SourceGraphic" mode="multiply"></feBlend>
 			</filter>
 		</defs>
-	    {{#each weather.layers}}
-			<path d="M 0 100 {{this.d}} L 100 100" class="{{this.class}}"></path>
-	    {{/each}}
+		<g id="sky">
+			<rect width="100%" height="100%"/>
+		</g>
+		<g id="clouds"></g>
+		<circle id="light" cx="0" cy="0" r="32"/>
+		<g id="values"></g>
+		<g id="extrema"></g>
 	</svg>
-	<canvas class="layer models"></canvas>
-	<div class="layer labels">
-	    {{#each weather.layers}}
-			<div class="{{this.class}} min" style="top: {{this.min.y}}%; left: {{this.min.x}}%;">{{this.min.v}}{{this.unit}}</div>
-			<div class="{{this.class}} max" style="top: {{this.max.y}}%; left: {{this.max.x}}%;">{{this.max.v}}{{this.unit}}</div>
-	    {{/each}}
+	<canvas class="layer"></canvas>
+	<div id="overlay" class="layer">
+		<div>
+			<h1 id="message">{{message}}</h1>
+			<h3 class="date"></h3>
+			<h3>
+				<span id="location">{{location.kurztext}}</span>
+				<span id="clock"></span>
+			</h3>
+			<h3>
+				Aare
+				<span id="aare">{{aare.temperatur}}°C bi {{aare.abfluss}}m<sup>3</sup>/s</span>
+			</h3>
+		</div>
+		<div>
+			<h3 class="date"></h3>
+		</div>
+		<div>
+			<h3 class="date"></h3>
+		</div>
+		<div>
+			<h3 class="date"></h3>
+		</div>
+		<div>
+			<h3 class="date"></h3>
+		</div>
+		<div>
+			<h3 class="date"></h3>
+		</div>
 	</div>
-	<div class="layer overlay">
-		<h1 class="message">{{message}}</h1>
-		<h2 class="clock"></h2>
-		<h2 class="location">{{location.kurztext}}</h2>
-		<h2 class="aare">Aare</h2>
-		<div class="aare">{{aare.temperatur}}°C bi {{aare.abfluss}}m<sup>3</sup>/s</div>
-		<div class="help">?</div>
-	</div>
+	<div id="help">?</div>
 </body>
 </html>
