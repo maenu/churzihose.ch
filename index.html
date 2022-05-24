@@ -68,10 +68,15 @@
 		h1 {
 			margin-bottom: 1rem;
 		}
-		#help {
+		nav {
 			position: fixed;
 			top: 0;
 			right: 0;
+		}
+		nav ul {
+			list-style: none;
+		}
+		#help, #refresh {
 			padding: 1em;
 		}
 		#sky {
@@ -138,6 +143,7 @@
 			const EXTREMA = document.querySelector('#extrema')
 			const OVERLAY = document.querySelector('#overlay')
 			const HELP = document.querySelector('#help')
+			const REFRESH = document.querySelector('#refresh')
 			const MESSAGE = document.querySelector('#message')
 			const CLOCK = document.querySelector('#clock')
 			
@@ -163,8 +169,8 @@
 			}
 			HELP.addEventListener('click', help)
 			HELP.addEventListener('touchend', help)
-			OVERLAY.addEventListener('click', load)
-			OVERLAY.addEventListener('touchend', load)
+			REFRESH.addEventListener('click', load)
+			REFRESH.addEventListener('touchend', load)
 			if (window.location.pathname === '/') {
 				load()
 			}
@@ -465,6 +471,11 @@
 			<h3 class="date"></h3>
 		</div>
 	</div>
-	<div id="help">?</div>
+	<nav>
+	  <ul>
+	    <li id="help">?</li>
+	    <li id="refresh">↻</li>
+	  </ul>
+	</nav>
 </body>
 </html>
